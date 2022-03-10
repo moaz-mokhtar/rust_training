@@ -160,6 +160,13 @@ Visit <http://127.0.0.1:8080/graphiql> after run the application.
 
 <br>
 
+## References
+
+<https://serde.rs/derive.html>
+
+<br>
+
+<br>
 ---
 Thanks
 > Developed by Moaz bin Mohamed Mokhtar
