@@ -6,7 +6,7 @@ Technologies are as below:
 
 - Rust programming language #rust_lang
 - Actix web framework
-- MySql for database
+- Postgres for database
 - Diesel ORM
 - REST API
 
@@ -15,17 +15,9 @@ Technologies are as below:
 - Install Rust follow link: <https://www.rust-lang.org/tools/install>
 - Install Docker follow link: <https://docs.docker.com/get-docker/>
 <!-- TODO -->
-- Install MySql-server docker image, link: <https://hub.docker.com/r/yugabytedb/yugabyte>
-
-    ```shell
-    docker pull yugabytedb/yugabyte
-    ```
-
-- Create and run Yugabyte container named `yugabyte`
-
-    ```
-    docker run -d --name yugabyte -p7000:7000 -p9000:9000 -p5433:5433 -p9042:9042 -v ~/yb_data:/home/yugabyte/yb_data yugabytedb/yugabyte:latest bin/yugabyted start --base_dir=/home/yugabyte/yb_data --daemon=false
-    ```
+- Install postgres in your device or inside docker image:<br>
+ <https://www.postgresql.org/download/> <br>
+ <https://hub.docker.com/_/postgres>
 
 - install Diesel CLI, link: <https://crates.io/crates/diesel_cli>
 
@@ -51,48 +43,32 @@ After downloading this repo:
 
 ## REST API queries using Postman
 
-### `health` endpoint
+### `register` endpoint
 
 - Request:
 
     ```
-    GET http://127.0.0.1:8080/health
+    GET http://127.0.0.1:8000/register
     ```
 
 - Response:
 
     ```
-    Healthy
+    TODO
     ```
 
-### `users` endpoint
+### `login` endpoint
 
 - Request:
 
     ```
-    GET http://127.0.0.1:8080/users
+    GET http://127.0.0.1:8000/login
     ```
 
 - Response:
 
     ```json
-        [
-            {
-                "id": "3",
-                "username": "said",
-                "password": "pass"
-            },
-            {
-                "id": "2",
-                "username": "baher",
-                "password": "pass"
-            },
-            {
-                "id": "1",
-                "username": "ahmed",
-                "password": "pass"
-            }
-        ]
+        TODO
     ```
 
 ## GraphQL API queries using GraphiQL
@@ -162,8 +138,9 @@ Visit <http://127.0.0.1:8080/graphiql> after run the application.
 
 ## References
 
-<https://serde.rs/derive.html>
-
+<https://serde.rs/derive.html> <br>
+<https://stackoverflow.com/questions/62269278/how-can-i-make-protected-routes-in-actix-web> <br>
+<https://actix.rs/docs/middleware/>
 <br>
 
 <br>

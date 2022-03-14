@@ -2,13 +2,14 @@ use crate::{
     db::DbPool,
     entity::user::{User, UserRegisteration},
     schema::users::dsl::users,
+    MyError,
 };
 
 use bcrypt::verify;
 use bcrypt::{hash, DEFAULT_COST};
 use diesel::prelude::*;
 use uuid::Uuid;
-type DbError = Box<dyn std::error::Error + Send + Sync>;
+// type DbError = Box<dyn std::error::Error + Send + Sync>;
 
 // impl User {
 //     pub async fn get_all(connection: &MysqlConnection) -> Result<Vec<User>, DbError> {
@@ -20,7 +21,7 @@ type DbError = Box<dyn std::error::Error + Send + Sync>;
 // }
 
 impl User {
-    pub async fn insert(incoming: UserRegisteration, pool: &DbPool) -> Result<User, DbError> {
+    pub async fn insert(incoming: UserRegisteration, pool: &DbPool) -> Result<User, MyError> {
         let hashed_password = hash(&incoming.password, DEFAULT_COST)?;
 
         let new_user = User {
@@ -39,7 +40,7 @@ impl User {
         Ok(feedback)
     }
 
-    pub async fn find_by_id(incoming_id: Uuid, pool: &DbPool) -> Result<User, DbError> {
+    pub async fn find_by_id(incoming_id: Uuid, pool: &DbPool) -> Result<User, MyError> {
         let connection = pool.get()?;
         let feedback = users.find(incoming_id).first(&connection)?;
 
@@ -49,7 +50,7 @@ impl User {
     pub async fn find_by_username(
         incoming_username: String,
         pool: &DbPool,
-    ) -> Result<User, DbError> {
+    ) -> Result<User, MyError> {
         use crate::schema::users::username;
 
         let connection = pool.get()?;
@@ -60,7 +61,7 @@ impl User {
         Ok(feedback)
     }
 
-    pub async fn get_all(pool: &DbPool) -> Result<Vec<User>, DbError> {
+    pub async fn get_all(pool: &DbPool) -> Result<Vec<User>, MyError> {
         let connection = pool.get()?;
         let _users = users.load::<User>(&connection)?;
 
@@ -71,7 +72,7 @@ impl User {
         username: String,
         incoming_password: String,
         pool: &DbPool,
-    ) -> Result<bool, DbError> {
+    ) -> Result<bool, MyError> {
         let user = User::find_by_username(username, &pool).await?;
         let is_authenticated = verify(incoming_password, &user.password)?;
 

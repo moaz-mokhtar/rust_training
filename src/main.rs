@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::{middleware::Logger, web::Data, App, HttpServer};
 use log::info;
 use rust_training::{db::DbClientConn, handler, utils};
@@ -21,6 +22,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
+            .wrap(Cors::permissive())
             .app_data(data.clone())
             .configure(handler::routes_config)
     })
