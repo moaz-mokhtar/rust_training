@@ -43,12 +43,35 @@ After downloading this repo:
 
 ## REST API queries using Postman
 
+Total APIs to be developed as below:
+
+- register
+- login
+- user
+- refresh
+- logout
+- forgot
+- reset
+- two-factor
+- google-auth
+
 ### `register` endpoint
 
 - Request:
 
     ```
     GET http://127.0.0.1:8000/register
+    ```
+
+    ```json
+        {
+            "first_name": "...",
+            "last_name": "...",
+            "username": "...",
+            "email": "...",
+            "password": "...",
+            "confirm_password": "..."
+        }
     ```
 
 - Response:
@@ -65,71 +88,20 @@ After downloading this repo:
     GET http://127.0.0.1:8000/login
     ```
 
-- Response:
-
     ```json
-        TODO
-    ```
-
-## GraphQL API queries using GraphiQL
-
-Visit <http://127.0.0.1:8080/graphiql> after run the application.
-
-### `api_version` endpoint
-
-- Request
-
-    ```json
-    query version{
-        apiVersion
-    }
+        {
+            "username": "...",
+            "password": "..."
+        }
     ```
 
 - Response:
 
     ```json
-    {
-        "data": {
-            "apiVersion": "1.0"
+        {
+            "message": "User authenticated",
+            "data": true
         }
-    }
-
-    ```
-
-### `users` endpoint
-
-- Request
-
-    ```json
-    query users{
-        users{
-            id
-            username
-        }
-    }
-    ```
-
-- Response:
-
-    ```json
-    {
-        "data": {
-            "users": [
-            {
-                "id": "3",
-                "username": "said"
-            },
-            {
-                "id": "2",
-                "username": "baher"
-            },
-            {
-                "id": "1",
-                "username": "ahmed"
-            }
-            ]
-        }
-    }
     ```
 
 <br>
@@ -138,12 +110,15 @@ Visit <http://127.0.0.1:8080/graphiql> after run the application.
 
 ## References
 
+Below are little resources: <br>
 <https://serde.rs/derive.html> <br>
 <https://stackoverflow.com/questions/62269278/how-can-i-make-protected-routes-in-actix-web> <br>
-<https://actix.rs/docs/middleware/>
-<br>
+<https://actix.rs/docs/middleware/> <br>
+<https://actix.rs/> <br>
 
 <br>
+
 ---
-Thanks
+
+Thanks <br>
 > Developed by Moaz bin Mohamed Mokhtar
