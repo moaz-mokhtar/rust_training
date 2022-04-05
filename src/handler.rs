@@ -1,35 +1,38 @@
 use crate::auth::{
     decode_access_token, decode_refresh_token, generate_access_token, generate_refresh_token,
-    get_auth_from_header, parse_refresh_token_from_cookies,
+    get_auth_from_header,
 };
-use crate::entity::general::Response;
-use crate::entity::user::{UserLogin, UserRegisteration};
+use crate::entity::general::{MessageResponse, TokenResponse};
+use crate::entity::user::{
+    ForgotRequest, Reset, ResetRequest, UserLoginRequest, UserRegisterationRequest, UserToken,
+};
 use crate::{db::DbPool, entity::user::User};
-
+use actix_identity::Identity;
+use actix_session::{Session, SessionExt};
 use actix_web::HttpRequest;
 use actix_web::{
-    cookie::Cookie,
     get, post,
     web::{self, ServiceConfig},
     Error, HttpResponse, Responder,
 };
+use chrono::Duration;
+use lettre::{ClientSecurity, Message, SmtpTransport, Transport};
+// use cookie::{Cookie, CookieJar};
+use log::{debug, info};
+use rand::distributions::{Alphanumeric, DistString};
 
 pub fn routes_config(config: &mut ServiceConfig) {
     config
-    .service(health)
-    .service(get_users_list)
-    .service(register)
-    .service(login)
-    .service(get_user)
-    .service(refresh)
-    // ===
-    // .route("/student/{id}", web::get().to(get_by_id))
-    // .route("/student/add", web::post().to(add))
-    // .route("/student/archive/{id}", web::delete().to(archive_by_id))
-    ;
+        .service(health)
+        .service(register)
+        .service(login)
+        .service(get_user)
+        .service(refresh)
+        .service(logout)
+        .service(forgot)
+        .service(reset);
 }
 
-// ===
 // TODO: API list:
 /*
     register
@@ -43,10 +46,6 @@ pub fn routes_config(config: &mut ServiceConfig) {
     google-auth
 */
 
-// =====
-// =====
-// =====
-
 #[get("/")]
 /// Route to test API functionality without any communcation with DB.
 pub async fn health() -> impl Responder {
@@ -55,102 +54,61 @@ pub async fn health() -> impl Responder {
 
 #[post("/register")]
 pub async fn register(
-    new_user: web::Json<UserRegisteration>,
+    data: web::Json<UserRegisterationRequest>,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, Error> {
-    let body_message;
+    debug!("{:?}", data.0.clone());
 
-    if new_user.0.password != new_user.0.confirm_password {
-        let response = Response {
-            message: format!("Kindly confirm the same password."),
-            data: {},
-        };
-
-        let serialized_response = serde_json::to_string(&response).unwrap();
-
-        return Ok(HttpResponse::BadRequest().body(serialized_response));
-
-        // body_message = serde_json::to_string("Kindly confirm the same password.").unwrap();
-        // return Ok(HttpResponse::BadRequest().body(body_message));
+    if data.0.password != data.0.password_confirm {
+        return Ok(HttpResponse::BadRequest().json("Kindly confirm the same password."));
     }
 
-    match User::insert(new_user.0, &pool).await {
-        Ok(feedback) => {
-            let response = Response {
-                message: format!("New user added."),
-                data: feedback,
-            };
-
-            let serialized_response = serde_json::to_string(&response).unwrap();
-
-            // body_message = serde_json::to_string(&feedback).unwrap();
-            Ok(HttpResponse::Ok().body(serialized_response))
-        }
-        Err(e) => {
-            let error_message = e.to_string();
-
-            body_message =
-                serde_json::to_string(format!("BadRequest: {}", error_message).as_str()).unwrap();
-            Ok(HttpResponse::BadRequest().body(body_message))
-        }
+    match User::insert(data.0, &pool).await {
+        Ok(feedback) => Ok(HttpResponse::Ok().json(feedback)),
+        Err(e) => Ok(HttpResponse::BadRequest().json(e.to_string())),
     }
 }
 
 #[post("/login")]
 pub async fn login(
-    user_login: web::Json<UserLogin>,
+    data: web::Json<UserLoginRequest>,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, Error> {
-    let body_message;
-    match User::find_by_username(user_login.0.username.clone(), &pool).await {
+    match User::authenticate_by_email(data.0.email, data.0.password, &pool).await {
         Ok(user) => {
             let user_id = user.id;
+            let access_token = generate_access_token(user_id);
+            let refresh_token = generate_refresh_token(user_id);
 
-            match User::authenticate(user_login.0.username, user_login.0.password, &pool).await {
-                Ok(is_authenticated) => {
-                    if is_authenticated {
-                        // ===
-                        let _access_token = generate_access_token(user_id);
-                        let refresh_token = generate_refresh_token(user_id);
-                        let cookie = Cookie::build("refresh_token", refresh_token)
+            info!("access_token {}", access_token);
+            info!("refresh_token {}", refresh_token);
+
+            let now = chrono::Utc::now();
+
+            let user_token = UserToken {
+                user_id: user_id,
+                token: refresh_token.clone(),
+                created_at: now.naive_utc(),
+                expires_at: now.naive_utc() + Duration::days(7),
+            };
+
+            match UserToken::insert(user_token, &pool).await {
+                Ok(_) => {
+                    let cookie =
+                        actix_web::cookie::Cookie::build("refresh_token", refresh_token.clone())
                             .http_only(true)
                             .finish();
 
-                        let response = Response {
-                            message: format!("User authenticated"),
-                            data: is_authenticated,
-                        };
+                    let response = TokenResponse {
+                        token: access_token,
+                    };
 
-                        let serialized_response = serde_json::to_string(&response).unwrap();
-
-                        dbg!(_access_token);
-
-                        Ok(HttpResponse::Ok().cookie(cookie).body(serialized_response))
-                    } else {
-                        let message =
-                            format!("Credential not correct. Try again with correct credentials.");
-                        body_message = serde_json::to_string(message.as_str()).unwrap();
-
-                        Ok(HttpResponse::BadRequest().body(body_message))
-                    }
+                    Ok(HttpResponse::Ok().cookie(cookie).json(response))
                 }
-                Err(e) => {
-                    let error_message = e.to_string();
-
-                    body_message =
-                        serde_json::to_string(format!("BadRequest: {}", error_message).as_str())
-                            .unwrap();
-                    Ok(HttpResponse::BadRequest().body(body_message))
-                }
+                Err(e) => Ok(HttpResponse::BadRequest().json(e.to_string())),
             }
         }
-        Err(e) => {
-            let error_message = e.to_string();
-
-            body_message =
-                serde_json::to_string(format!("BadRequest: {}", error_message).as_str()).unwrap();
-            Ok(HttpResponse::BadRequest().body(body_message))
-        }
+        Err(e) => Ok(HttpResponse::Unauthorized().json(e.to_string())),
     }
 }
 
@@ -159,7 +117,6 @@ pub async fn get_user(
     request: HttpRequest,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, Error> {
-    let body_message;
     match get_auth_from_header(request) {
         Ok(auth_token) => {
             dbg!(auth_token.clone());
@@ -168,171 +125,182 @@ pub async fn get_user(
                 Ok(user_id) => {
                     let id = uuid::Uuid::parse_str(&user_id).unwrap();
                     match User::find_by_id(id, &pool).await {
-                        Ok(user) => {
-                            let response = Response {
-                                message: format!("User info"),
-                                data: user,
-                            };
-
-                            let serialized_response = serde_json::to_string(&response).unwrap();
-
-                            Ok(HttpResponse::Ok().body(serialized_response))
-                        }
-                        Err(e) => {
-                            let error_message = e.to_string();
-
-                            body_message = serde_json::to_string(
-                                format!("BadRequest: {}", error_message).as_str(),
-                            )
-                            .unwrap();
-                            Ok(HttpResponse::BadRequest().body(body_message))
-                        }
+                        Ok(user) => Ok(HttpResponse::Ok().json(user)),
+                        Err(e) => Ok(HttpResponse::NotFound().json(e.to_string())),
                     }
                 }
-                Err(e) => {
-                    let error_message = e.to_string();
-
-                    body_message =
-                        serde_json::to_string(format!("BadRequest: {}", error_message).as_str())
-                            .unwrap();
-                    Ok(HttpResponse::BadRequest().body(body_message))
-                }
+                Err(e) => Ok(HttpResponse::Unauthorized().json(e.to_string())),
             }
         }
-        Err(e) => {
-            let error_message = e.to_string();
-
-            body_message =
-                serde_json::to_string(format!("BadRequest: {}", error_message).as_str()).unwrap();
-            Ok(HttpResponse::BadRequest().body(body_message))
-        }
+        Err(e) => Ok(HttpResponse::Unauthorized().json(e.to_string())),
     }
 }
 
 #[get("/refresh")]
 pub async fn refresh(request: HttpRequest, pool: web::Data<DbPool>) -> Result<HttpResponse, Error> {
-    // ===
-    let body_message;
+    match request.cookie("refresh_token") {
+        Some(cookie) => {
+            let refresh_token = cookie.value();
+            dbg!(refresh_token.clone());
+            match decode_refresh_token(refresh_token.to_string()) {
+                Ok(user_id) => {
+                    let id = uuid::Uuid::parse_str(&user_id).unwrap();
+                    match User::find_by_id(id, &pool).await {
+                        Ok(user) => {
+                            // if token for this user not exist, return unauthenticated error
+                            match UserToken::find_by_token(refresh_token.to_string(), id, &pool)
+                                .await
+                            {
+                                Ok(user_token) => {
+                                    let now = chrono::Utc::now().naive_utc();
+                                    if user_token.expires_at < now {
+                                        return Ok(
+                                            HttpResponse::Unauthorized().json("Token expired")
+                                        );
+                                    }
 
-    match request.headers().get(actix_web::http::header::COOKIE) {
-        Some(cookie_header) => {
-            dbg!(cookie_header);
-
-            match parse_refresh_token_from_cookies(cookie_header.to_str().unwrap()) {
-                Some(refresh_token) => {
-                    dbg!(refresh_token.clone());
-
-                    match decode_refresh_token(refresh_token) {
-                        Ok(user_id) => {
-                            let id = uuid::Uuid::parse_str(&user_id).unwrap();
-                            match User::find_by_id(id, &pool).await {
-                                Ok(user) => {
-                                    let access_token = generate_access_token(user.id.clone());
-
-                                    let response = Response {
-                                        message: format!("Token refreshed"),
-                                        data: access_token,
+                                    let access_token = generate_access_token(user.id);
+                                    let response = TokenResponse {
+                                        token: access_token,
                                     };
 
-                                    let serialized_response =
-                                        serde_json::to_string(&response).unwrap();
-
-                                    Ok(HttpResponse::Ok().body(serialized_response))
+                                    Ok(HttpResponse::Ok().json(response))
                                 }
-                                Err(e) => {
-                                    let error_message = e.to_string();
-
-                                    body_message = serde_json::to_string(
-                                        format!("BadRequest: {}", error_message).as_str(),
-                                    )
-                                    .unwrap();
-                                    Ok(HttpResponse::BadRequest().body(body_message))
-                                }
+                                Err(_) => Ok(HttpResponse::Unauthorized().json("Token not found")),
                             }
                         }
-                        Err(e) => {
-                            let error_message = e.to_string();
-
-                            body_message = serde_json::to_string(
-                                format!("BadRequest: {}", error_message).as_str(),
-                            )
-                            .unwrap();
-                            Ok(HttpResponse::BadRequest().body(body_message))
-                        }
+                        Err(e) => Ok(HttpResponse::NotFound().json(e.to_string())),
                     }
                 }
-                None => {
-                    let error_message = format!("No `refresh_token` found");
-                    body_message =
-                        serde_json::to_string(format!("BadRequest: {}", error_message).as_str())
-                            .unwrap();
-                    Ok(HttpResponse::BadRequest().body(body_message))
-                }
+                Err(e) => Ok(HttpResponse::Unauthorized().json(e.to_string())),
             }
         }
-        None => {
-            let error_message = format!("No cookie header found");
-            body_message =
-                serde_json::to_string(format!("BadRequest: {}", error_message).as_str()).unwrap();
-            Ok(HttpResponse::BadRequest().body(body_message))
-        }
+        None => Ok(HttpResponse::Unauthorized().json("No `refresh_token` found")),
     }
 }
 
-//=============
-//=============
+#[get("/logout")]
+pub async fn logout(request: HttpRequest, pool: web::Data<DbPool>) -> Result<HttpResponse, Error> {
+    let response = MessageResponse {
+        message: format!("success"),
+    };
 
-#[get("/users")]
-pub async fn get_users_list(
+    let mut http_response = HttpResponse::Ok().json(response);
+    // let cookie_to_remove = request.cookie("refresh_token").unwrap();
+    match request.cookie("refresh_token") {
+        Some(cookie) => {
+            let refresh_token = cookie.value();
+
+            info!("/logout -> refresh_token: {:?}", refresh_token);
+
+            match UserToken::delete(refresh_token.to_string(), &pool).await {
+                Ok(_) => {
+                    info!("/logout -> cookie_to_remove: {:?}", cookie.clone());
+                    http_response.add_removal_cookie(&cookie).unwrap();
+                    info!("/logout -> response: {:?}", http_response);
+                    Ok(http_response)
+                }
+                Err(e) => Ok(HttpResponse::InternalServerError().json(e.to_string())),
+            }
+        }
+        None => Ok(HttpResponse::Unauthorized().json("No `refresh_token` found")),
+    }
+}
+
+#[post("/forgot")]
+pub async fn forgot(
+    data: web::Json<ForgotRequest>,
     request: HttpRequest,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, Error> {
-    let body_message;
-    match get_auth_from_header(request) {
-        Ok(auth_token) => {
-            dbg!(auth_token.clone());
+    let email = data.0.email;
+    let token = (Alphanumeric.sample_string(&mut rand::thread_rng(), 10)).to_lowercase();
+    info!("/forgot -> email: {}", &email);
+    info!("/forgot -> rand token: {}", &token);
 
-            match decode_access_token(auth_token) {
-                Ok(_) => {
-                    // ===
-                    match User::get_all(&pool).await {
-                        Ok(user) => {
-                            let response = Response {
-                                message: format!("Users list"),
-                                data: user,
+    match Reset::insert(email.clone(), token.clone(), &pool).await {
+        Ok(_) => {
+            let frontend_url =
+                std::env::var("FRONTEND_URL").expect("Missed 'FRONTEND_URL' environment variable");
+            dbg!(&frontend_url);
+
+            let reset_url = format!("{frontend_url}/reset/{token}");
+            dbg!(&reset_url);
+
+            let email_body = format!("Click <a href={reset_url}> here</a> to reset password");
+            let email = lettre_email::EmailBuilder::new()
+                .to("hello@example.com")
+                .from("no-reply@site.com")
+                .subject("Reset your password")
+                .html(email_body)
+                .build()
+                .unwrap();
+
+            info!("/forgot -> email: {:?}", &email);
+
+            let mut mailer = lettre::SmtpClient::new("localhost:1025", ClientSecurity::None)
+                .unwrap()
+                .transport();
+
+            let result = mailer.send(email.into());
+            info!("/forgot -> mailer.send: {:?}", &result);
+
+            let response = MessageResponse {
+                message: format!("success"),
+            };
+            Ok(HttpResponse::Ok().json(response))
+        }
+        Err(e) => Ok(HttpResponse::InternalServerError().json(e.to_string())),
+    }
+}
+
+#[post("/reset")]
+pub async fn reset(
+    data: web::Json<ResetRequest>,
+    request: HttpRequest,
+    pool: web::Data<DbPool>,
+) -> Result<HttpResponse, Error> {
+    // check that password is the same with password_confirmation
+    if data.0.password != data.0.password_confirm {
+        return Ok(HttpResponse::BadRequest().json("Passwords do not match!"));
+    }
+
+    info!("/reset -> incoming_data: {:?}", &data);
+    let incoming_token = data.0.token;
+    let incoming_password = data.0.password;
+
+    // get Reset object related to incoming_token from db
+    match Reset::find_by_token(incoming_token.clone(), &pool).await {
+        Ok(reset) => {
+            info!("/reset -> reset: {:?}", &reset);
+
+            // if incoming_token not same with token from db, return "Invalid link!"
+            if reset.token != incoming_token {
+                return Ok(HttpResponse::BadRequest().json("Invalid link!"));
+            }
+            let email = reset.email.clone();
+
+            // get User object related to email of Reset object.
+            match User::find_by_email(email, &pool).await {
+                Ok(user) => {
+                    info!("/reset -> user: {:?}", &user);
+
+                    // update User object password
+                    // Return message:success
+                    match User::update_password(user.id, incoming_password, &pool).await {
+                        Ok(_) => {
+                            let response = MessageResponse {
+                                message: format!("success"),
                             };
-
-                            let serialized_response = serde_json::to_string(&response).unwrap();
-
-                            Ok(HttpResponse::Ok().body(serialized_response))
+                            Ok(HttpResponse::Ok().json(response))
                         }
-                        Err(e) => {
-                            let error_message = e.to_string();
-
-                            body_message = serde_json::to_string(
-                                format!("BadRequest: {}", error_message).as_str(),
-                            )
-                            .unwrap();
-                            Ok(HttpResponse::BadRequest().body(body_message))
-                        }
+                        Err(e) => Ok(HttpResponse::Unauthorized().json(e.to_string())),
                     }
                 }
-                Err(e) => {
-                    let error_message = e.to_string();
-
-                    body_message =
-                        serde_json::to_string(format!("BadRequest: {}", error_message).as_str())
-                            .unwrap();
-                    Ok(HttpResponse::BadRequest().body(body_message))
-                }
+                // if User object not found, return "User not found!"
+                Err(e) => Ok(HttpResponse::NotFound().json(e.to_string())),
             }
         }
-        Err(e) => {
-            let error_message = e.to_string();
-
-            body_message =
-                serde_json::to_string(format!("BadRequest: {}", error_message).as_str()).unwrap();
-            Ok(HttpResponse::BadRequest().body(body_message))
-        }
+        Err(e) => Ok(HttpResponse::NotFound().json(e.to_string())),
     }
 }
