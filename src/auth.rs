@@ -1,4 +1,4 @@
-use actix_web::{http::header::HeaderValue, HttpRequest};
+use actix_web::HttpRequest;
 use chrono::prelude::*;
 use jsonwebtoken::{self, decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
@@ -66,66 +66,45 @@ pub fn get_auth_from_header(request: HttpRequest) -> Result<String, MyError> {
                     // ===
                     match schema.trim().to_lowercase().as_str() {
                         "bearer" => Ok(auth_values[1].to_string()),
-                        _ => {
-                            let error_message = format!("Wrong Authentication scheme");
-                            Err(MyError::from(error_message))
-                        }
+                        _ => Err(MyError::General {
+                            desc: "Wrong Authentication scheme".to_string(),
+                        }),
                     }
                 }
-                None => {
-                    let error_message = format!("Empty `Authorization` schema");
-                    Err(MyError::from(error_message))
-                }
+                None => Err(MyError::General {
+                    desc: "Empty `Authorization` schema".to_string(),
+                }),
             }
         }
         // No `Authorization` header found
-        None => {
-            let error_message = format!("No `Authorization` header found");
-            Err(MyError::from(error_message))
-        }
+        None => Err(MyError::General {
+            desc: "No `Authorization` header found".to_string(),
+        }),
     }
 }
 
+/// Decode access_token and return user_id
 pub fn decode_access_token(token: String) -> Result<String, MyError> {
-    let token_message = decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret("access_secret".as_ref()),
-        &Validation::new(Algorithm::HS256),
-    )
-    .unwrap();
-
-    Ok(token_message.claims.user_id)
+    decode_token(token, "access_secret".to_string())
 }
 
+/// Decode refresh_token and return user_id
 pub fn decode_refresh_token(token: String) -> Result<String, MyError> {
-    let token_message = decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret("refresh_secret".as_ref()),
-        &Validation::new(Algorithm::HS256),
-    )
-    .unwrap();
-
-    Ok(token_message.claims.user_id)
+    decode_token(token, "refresh_secret".to_string())
 }
 
-pub fn parse_refresh_token_from_cookies(cookie_header: &str) -> Option<String> {
-    let cookies: Vec<(&str, &str)> = cookie_header
-        .split("; ")
-        .map(|raw| {
-            let parsed = cookie::Cookie::parse(raw)
-                .map(|c| (c.name_raw().unwrap(), c.value_raw().unwrap()))
-                .unwrap();
-            parsed
-        })
-        .collect();
-
-    let refresh_token = cookies.iter().find_map(|(c_header, c_value)| {
-        if *c_header == "refresh_token" {
-            Some(c_value.to_string())
-        } else {
-            None
+/// Decode a token based on the a specified secret
+fn decode_token(token: String, secret: String) -> Result<String, MyError> {
+    match decode::<Claims>(
+        &token,
+        &DecodingKey::from_secret(secret.as_ref()),
+        &Validation::new(Algorithm::HS256),
+    ) {
+        Ok(token_message) => Ok(token_message.claims.user_id),
+        Err(e) => {
+            return Err(MyError::General {
+                desc: format!("{}", e),
+            });
         }
-    });
-
-    refresh_token
+    }
 }

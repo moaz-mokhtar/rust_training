@@ -1,7 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct Response<T> {
-    pub message: String,
+pub struct ObjectResponse<T> {
     pub data: T,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MessageResponse<T> {
+    pub message: T,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TokenResponse<T> {
+    pub token: T,
 }

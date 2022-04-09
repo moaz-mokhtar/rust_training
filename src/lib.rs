@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
 #[macro_use]
 extern crate diesel;
 extern crate diesel_migrations;
@@ -10,4 +14,11 @@ pub mod handler;
 pub mod schema;
 pub mod utils;
 
-type MyError = Box<dyn std::error::Error + Send + Sync>;
+// type MyError = Box<dyn std::error::Error + Send + Sync>;
+
+extern crate custom_error;
+use custom_error::custom_error;
+
+custom_error! { pub MyError
+    General{desc:String}  = "Error: {desc}",
+}

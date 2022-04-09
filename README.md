@@ -67,7 +67,6 @@ Total APIs to be developed as below:
         {
             "first_name": "...",
             "last_name": "...",
-            "username": "...",
             "email": "...",
             "password": "...",
             "confirm_password": "..."
@@ -90,7 +89,7 @@ Total APIs to be developed as below:
 
     ```json
         {
-            "username": "...",
+            "email": "...",
             "password": "..."
         }
     ```

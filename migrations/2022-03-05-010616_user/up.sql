@@ -4,6 +4,5 @@ create table users(
     first_name varchar not null,
     last_name varchar not null,
     email varchar not null,
-    username varchar not null,
     password varchar not null
 )
